@@ -92,3 +92,9 @@ Az app ad-hoc aláírású, és nincs notarizálva. Első indításkor kattints 
 swift test                        # lefuttatja a teszteket
 swift Scripts/make-icon.swift .   # újra legenerálja az ikont
 ```
+
+---
+
+## License · Licenc
+
+[MIT](LICENSE) © 2026 Ekidio
