@@ -125,6 +125,11 @@ final class NomenModel {
         lastRename.removeAll()
     }
 
+    func move(from source: IndexSet, to destination: Int) {
+        sortOrder = []
+        items.move(fromOffsets: source, toOffset: destination)
+    }
+
     func moveSelected(by offset: Int) {
         let indices = items.indices.filter { selection.contains(items[$0].id) }
         guard !indices.isEmpty else { return }

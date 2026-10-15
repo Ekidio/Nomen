@@ -6,6 +6,18 @@ extension Color {
     static let nomenPink = Color(red: 0.98, green: 0.42, blue: 0.62)
     static let nomenViolet = Color(red: 0.55, green: 0.33, blue: 0.98)
     static let nomenBlue = Color(red: 0.27, green: 0.36, blue: 0.96)
+    static let nomenCyan = Color(red: 0.40, green: 0.86, blue: 1.0)
+    static let nomenSky = Color(red: 0.42, green: 0.62, blue: 1.0)
+    static let nomenGraphite = Color(white: 0.11)
+    /// Hairline used on glass panels.
+    static let glassStroke = Color.white.opacity(0.10)
+}
+
+extension ShapeStyle where Self == LinearGradient {
+    /// Cyan → sky, used for new names.
+    static var nomenNewName: LinearGradient {
+        LinearGradient(colors: [.nomenCyan, .nomenSky], startPoint: .leading, endPoint: .trailing)
+    }
 }
 
 extension LinearGradient {
@@ -93,28 +105,23 @@ struct ContentView: View {
                     DropZone(isTargeted: isDropTargeted) { model.showOpenPanel() }
                         .padding([.horizontal, .bottom], 16)
                 } else {
-                    fileTable(previews)
+                    fileList(previews)
                         .overlay {
                             if isDropTargeted {
-                                Rectangle().strokeBorder(Color.nomen, lineWidth: 3)
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(LinearGradient.nomen, lineWidth: 2)
                             }
                         }
+                        .padding([.horizontal, .bottom], 16)
                 }
             }
             .frame(maxHeight: .infinity)
 
             footer(previews)
         }
-        .background {
-            ZStack(alignment: .top) {
-                Color(nsColor: .windowBackgroundColor)
-                LinearGradient.nomen
-                    .opacity(0.14)
-                    .frame(height: 320)
-                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
-            }
-            .ignoresSafeArea()
-        }
+        .background { AuroraBackground().ignoresSafeArea() }
+        .preferredColorScheme(.dark)
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 ToastView(toast: toast)
@@ -166,6 +173,18 @@ struct ContentView: View {
             .disabled(model.selection.isEmpty)
 
             Menu {
+                Button(L("Név szerint (A → Z)", "Name (A → Z)")) { model.sortOrder = [KeyPathComparator(\.name)] }
+                Button(L("Név szerint (Z → A)", "Name (Z → A)")) { model.sortOrder = [KeyPathComparator(\.name, order: .reverse)] }
+                Divider()
+                Button(L("Legrégebbi elöl", "Oldest first")) { model.sortOrder = [KeyPathComparator(\.modified)] }
+                Button(L("Legújabb elöl", "Newest first")) { model.sortOrder = [KeyPathComparator(\.modified, order: .reverse)] }
+            } label: {
+                Label(L("Rendezés", "Sort"), systemImage: "arrow.up.arrow.down")
+            }
+            .help(L("Rendezés – a sorokat húzással is átrendezheted", "Sort – you can also drag rows to reorder"))
+            .disabled(model.items.isEmpty)
+
+            Menu {
                 Picker(L("Nyelv", "Language"), selection: $model.language) {
                     ForEach(AppLanguage.allCases) { Text($0.displayName).tag($0) }
                 }
@@ -177,78 +196,49 @@ struct ContentView: View {
         }
     }
 
-    private func fileTable(_ previews: (byID: [FileItem.ID: Preview], error: String?)) -> some View {
-        Table(model.items, selection: $model.selection, sortOrder: $model.sortOrder) {
-            TableColumn(L("Eredeti név", "Original Name"), value: \.name) { item in
-                HStack(spacing: 8) {
-                    Image(nsImage: item.icon)
-                        .resizable()
-                        .frame(width: 18, height: 18)
-                    Text(item.name)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+    private func fileList(_ previews: (byID: [FileItem.ID: Preview], error: String?)) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text(L("Eredeti név", "Original Name"))
+                    .padding(.leading, 34)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Color.clear.frame(width: 16, height: 1)
+                Text(L("Új név", "New Name"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(L("Módosítva", "Modified"))
+                    .frame(width: 140, alignment: .trailing)
             }
-            .width(min: 160, ideal: 280)
+            .font(.system(size: 11, weight: .semibold))
+            .textCase(.uppercase)
+            .kerning(0.6)
+            .foregroundStyle(.white.opacity(0.38))
+            .padding(.horizontal, 22)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
 
-            TableColumn("") { item in
-                Image(systemName: "arrow.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(previews.byID[item.id]?.isChange == true ? Color.nomen : Color.secondary.opacity(0.4))
-            }
-            .width(18)
-
-            TableColumn(L("Új név", "New Name")) { item in
-                if let preview = previews.byID[item.id] {
-                    HStack(spacing: 6) {
-                        if preview.issue != nil {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
+            List(selection: $model.selection) {
+                ForEach(model.items) { item in
+                    FileRow(item: item, preview: previews.byID[item.id])
+                        .listRowSeparatorTint(.white.opacity(0.07))
+                        .contextMenu {
+                            Button(L("Megjelenítés a Finderben", "Show in Finder")) {
+                                NSWorkspace.shared.activateFileViewerSelecting([item.url])
+                            }
+                            Button(L("Eltávolítás a listából", "Remove from List")) {
+                                if !model.selection.contains(item.id) { model.selection = [item.id] }
+                                model.removeSelected()
+                            }
                         }
-                        Text(highlighted(old: item.name, new: preview.newName, issue: preview.issue != nil))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .help(preview.issue?.message ?? "")
                 }
+                .onMove { model.move(from: $0, to: $1) }
             }
-            .width(min: 160, ideal: 300)
-
-            TableColumn(L("Módosítva", "Modified"), value: \.modified) { item in
-                Text(item.modified, format: .dateTime.year().month(.abbreviated).day().hour().minute())
-                    .foregroundStyle(.secondary)
-            }
-            .width(min: 110, ideal: 150, max: 190)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .alternatingRowBackgrounds(.disabled)
+            .onDeleteCommand { model.removeSelected() }
         }
-        .scrollContentBackground(.hidden)
-        .onDeleteCommand { model.removeSelected() }
-    }
-
-    /// Unchanged start and end of the name stay plain; the part that changes is coloured.
-    private func highlighted(old: String, new: String, issue: Bool) -> AttributedString {
-        var result = AttributedString(new)
-        if issue {
-            result.foregroundColor = .red
-            return result
-        }
-        guard old != new else {
-            result.foregroundColor = .secondary
-            return result
-        }
-        let oldChars = Array(old), newChars = Array(new)
-        var prefix = 0
-        while prefix < min(oldChars.count, newChars.count), oldChars[prefix] == newChars[prefix] { prefix += 1 }
-        var suffix = 0
-        while suffix < min(oldChars.count, newChars.count) - prefix,
-              oldChars[oldChars.count - 1 - suffix] == newChars[newChars.count - 1 - suffix] { suffix += 1 }
-
-        let start = result.index(result.startIndex, offsetByCharacters: prefix)
-        let end = result.index(result.endIndex, offsetByCharacters: -suffix)
-        if start < end {
-            result[start..<end].foregroundColor = .nomen
-            result[start..<end].font = .body.weight(.semibold)
-        }
-        return result
+        .background(GlassPanel(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func footer(_ previews: (byID: [FileItem.ID: Preview], error: String?)) -> some View {
@@ -287,9 +277,9 @@ struct ContentView: View {
             .help(L("Átnevezés (⌘R)", "Rename (⌘R)"))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .padding(.vertical, 12)
+        .background(Color(white: 0.13))
+        .overlay(alignment: .top) { Rectangle().fill(Color.glassStroke).frame(height: 1) }
     }
 }
 
@@ -322,23 +312,14 @@ struct RuleCard: View {
                 }
                 .opacity(mode.usesText ? 1 : 0.45)
             }
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.large)
+            .textFieldStyle(GlassFieldStyle())
 
-            Divider()
+            Rectangle().fill(Color.glassStroke).frame(height: 1)
 
             OptionsBar(settings: $settings)
         }
         .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.regularMaterial)
-                .shadow(color: .nomenViolet.opacity(0.18), radius: 18, y: 8)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(LinearGradient.nomen.opacity(0.45), lineWidth: 1)
-        }
+        .background(GlassPanel(cornerRadius: 18, glow: true))
         .animation(.snappy(duration: 0.2), value: settings.mode)
     }
 
@@ -373,7 +354,7 @@ struct Captioned<Content: View>: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.6))
             content
         }
     }
@@ -475,7 +456,7 @@ struct NumberField: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(.white.opacity(0.6))
             TextField("", value: $value, format: .number.grouping(.never))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 48)
@@ -493,7 +474,7 @@ struct SmallTextField: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(.white.opacity(0.6))
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: width)
@@ -534,8 +515,9 @@ struct DropZone: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                .foregroundStyle(isTargeted ? Color.nomen : Color.secondary.opacity(0.35))
+                .foregroundStyle(isTargeted ? Color.nomen : Color.white.opacity(0.2))
         }
+        .background(GlassPanel(cornerRadius: 16))
         .animation(.easeOut(duration: 0.15), value: isTargeted)
     }
 }
@@ -564,7 +546,7 @@ struct ModeChips: View {
                             .lineLimit(1)
                         Spacer(minLength: 0)
                     }
-                    .foregroundStyle(isSelected ? .white : .primary)
+                    .foregroundStyle(isSelected ? .white : .white.opacity(0.82))
                     .padding(.horizontal, 10)
                     .frame(height: 32)
                     .background {
@@ -575,7 +557,11 @@ struct ModeChips: View {
                                 .matchedGeometryEffect(id: "selected", in: namespace)
                         } else {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.primary.opacity(0.05))
+                                .fill(Color.white.opacity(0.06))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(Color.white.opacity(0.07))
+                                }
                         }
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 10))
@@ -633,6 +619,113 @@ struct ToastView: View {
                     .fill(LinearGradient.nomen)
                     .shadow(color: .nomenViolet.opacity(0.5), radius: 16, y: 6)
             }
+    }
+}
+
+// MARK: - Glass look
+
+/// Neutral dark graphite background with a soft light falloff from the top.
+struct AuroraBackground: View {
+    var body: some View {
+        ZStack {
+            Color.nomenGraphite
+            RadialGradient(
+                colors: [Color.white.opacity(0.06), .clear],
+                center: .top,
+                startRadius: 0,
+                endRadius: 700
+            )
+        }
+    }
+}
+
+/// Frosted panel with a hairline edge; `glow` adds the brand-gradient rim.
+struct GlassPanel: View {
+    var cornerRadius: CGFloat
+    var glow = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape
+            .fill(Color(white: 0.16))
+            .overlay {
+                shape.strokeBorder(
+                    glow
+                        ? AnyShapeStyle(Color.white.opacity(0.12))
+                        : AnyShapeStyle(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.05)], startPoint: .top, endPoint: .bottom)),
+                    lineWidth: 1
+                )
+            }
+            .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
+    }
+}
+
+struct GlassFieldStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .textFieldStyle(.plain)
+            .font(.system(size: 14))
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.25))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12))
+            }
+    }
+}
+
+struct FileRow: View {
+    let item: FileItem
+    let preview: Preview?
+
+    var body: some View {
+        let changed = preview?.isChange == true
+        let issue = preview?.issue
+
+        HStack(spacing: 12) {
+            Image(nsImage: item.icon)
+                .resizable()
+                .frame(width: 22, height: 22)
+            Text(item.name)
+                .font(.system(size: 14))
+                .foregroundStyle(.white.opacity(0.55))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "arrow.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(changed ? AnyShapeStyle(Color.nomenCyan) : AnyShapeStyle(Color.white.opacity(0.18)))
+                .frame(width: 16)
+
+            HStack(spacing: 6) {
+                if issue != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+                Text(preview?.newName ?? item.name)
+                    .font(.system(size: 15, weight: changed ? .semibold : .regular))
+                    .foregroundStyle(
+                        issue != nil ? AnyShapeStyle(Color.red)
+                            : changed ? AnyShapeStyle(.nomenNewName)
+                            : AnyShapeStyle(Color.white.opacity(0.4))
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(issue?.message ?? "")
+
+            Text(item.modified, format: .dateTime.year().month(.abbreviated).day().hour().minute())
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.35))
+                .frame(width: 140, alignment: .trailing)
+        }
+        .padding(.vertical, 7)
     }
 }
 
